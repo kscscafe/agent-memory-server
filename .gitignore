@@ -1,0 +1,55 @@
+# ── Secrets & credentials ─────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+credentials.json
+service_account.json
+token.json
+claude_pyrojects.key
+claude_pyrojects.ignore
+claude_pyrojects.manifest
+mcp_oauth.db
+mcp_oauth.db-journal
+mcp_oauth.db-wal
+mcp_oauth.db-shm
+
+# ── Private data DB ───────────────────────────────────────────────
+memory.db
+memory.db-journal
+memory.db-wal
+memory.db-shm
+memory.db.bak.*
+memory.db.pre-*.bak
+.last_pre_codex_backup
+
+# ── Runtime & logs ────────────────────────────────────────────────
+*.log
+*.pid
+
+# ── Local override for user-specific config / prompts ─────────────
+config.yaml
+prompts/*.md
+!prompts/*.example.md
+
+# ── Personal-context docs (never publish) ─────────────────────────
+agent_status.md
+agent_contexts/
+AMS_インボックス実装仕様書.md
+
+# ── Backup snapshots (contain full private DB + old source) ───────
+_backup_pre_catalog_*/
+_backup_pre_codex_*/
+backups/
+
+# ── Python ────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.pytest_cache/
+
+# ── Editor / OS ───────────────────────────────────────────────────
+.DS_Store
+.idea/
+.vscode/

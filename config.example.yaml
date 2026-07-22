@@ -1,0 +1,26 @@
+# agent-memory-server — non-secret configuration example.
+# Copy this file to config.yaml if you want to override the defaults.
+# config.yaml is gitignored.
+
+# Registered agent personas. `id` is the canonical key used in prompt files
+# (e.g. id=operator → prompts/operator.md loaded first, falling back to operator.example.md).
+# `display_name` is only used in status / notification messages.
+agents:
+  - id: operator
+    display_name: operator
+  - id: hack
+    display_name: Hack
+  - id: kirishima
+    display_name: Kirishima
+  - id: rik
+    display_name: Rik
+
+# Default assignee when an instruction arrives without an explicit target.
+default_assignee: hack
+
+# Example subject list for the study-progress map endpoint. Replace with the
+# categories relevant to your workflow.
+study_map_subjects:
+  - Category A
+  - Category B
+  - Category C
