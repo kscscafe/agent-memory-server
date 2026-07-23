@@ -15,9 +15,10 @@ target is long-lived personas configured as Claude Projects; both the REST and
 MCP interfaces expose the same underlying store.
 
 This is a different axis from **multi-tenant memory servers that isolate multiple
-human end-users** (Redis Agent Memory Server, Mem0, Zep, Cognee, etc.). Those
-projects are built for "many humans × few agents" isolation; the AMS is built
-for "one human × many long-lived agent personas".
+human end-users** (Redis Agent Memory Server, Mem0, Zep, Cognee, etc.). Many
+existing memory platforms primarily organize memory around users, sessions, or
+application namespaces. AMS instead organizes memory around long-lived
+specialist agent personas serving one human owner.
 
 Codex also has a "multi-agent" story, but Codex-style multi-agent is
 **task-decomposition** — a manager farms sub-tasks out to worker agents on a
@@ -36,17 +37,20 @@ models differ:
 |---|---|---|
 | Unit of isolation | Per AI-agent persona (owner gate) | Per human user / namespace |
 | Target deployment | One human, many long-lived specialist personas | Many human users, one or a few agents |
-| Pre-save review | Built-in approval flow (`save_candidate`) | Auto-extract + auto-save by default |
+| Pre-save review | Pending queue with configurable auto-approval; Codex proposals require manual review | Auto-extract + auto-save by default |
 | Infra footprint | SQLite only, self-hosted end-to-end | Usually needs Redis or another external DB |
 
 ## What it provides
 
 - **Semantic / procedural / episodic memory tables** with hybrid retrieval
   (FTS5 full-text + vector search fused via Reciprocal Rank Fusion).
-- **Agent-level write isolation (owner gate)**: writes to memory records are
-  gated by an agent identifier (`OWNER_HANDLE`). Attempts to overwrite records
-  owned by another agent are rejected with HTTP 403, so multiple AI personas can
-  share one substrate without stepping on each other's memory.
+- **Agent-level write isolation (owner gate)**: when a semantic memory record
+  has an `owner` set, only that agent can overwrite it — writes from other
+  agents are rejected with HTTP 403. Owner is populated on direct REST/MCP
+  writes (`POST /memory/semantic`, `save_memory`) and on manual approval of
+  pending candidates. Records promoted by the scheduler's auto-approval path
+  currently land with `owner = NULL` and are not yet owner-gated (Phase 2
+  backlog); the gate protects records saved through the owner-aware paths.
 - **REST API** (`main.py`, default port 8000) for storing/searching memories,
   tracking instructions, and running an inbox workflow.
 - **MCP server** (`mcp_server.py`, default port 8001) exposing memory tools
@@ -107,7 +111,7 @@ config.example.yaml              # Copy to config.yaml to override non-secret se
 ### 1. Clone and install
 
 ```sh
-git clone https://github.com/<your-account>/agent-memory-server.git
+git clone https://github.com/kscscafe/agent-memory-server.git
 cd agent-memory-server
 python -m venv .venv
 source .venv/bin/activate
@@ -142,7 +146,7 @@ cp .env.example .env
 | `AMS_LAN_URL` | Optional LAN URL for status pages |
 | `MCP_ISSUER_URL` | MCP OAuth issuer (defaults to `http://localhost:8001`) |
 | `MCP_PORT` | MCP server port (default `8001`) |
-| `OWNER_HANDLE` | Identifier used for agent-level write isolation (owner gate). Writes targeting records owned by a different agent are rejected with HTTP 403, so multiple AI personas can share one substrate without accidentally overwriting each other. Also stored in `instructions.given_by`. Defaults to `owner` |
+| `OWNER_HANDLE` | Identifier for the owner-gate check. When a `semantic_memories` row has `owner` set, writes from any other agent are rejected with HTTP 403. Owner is populated on direct REST/MCP writes and on manually-approved pending candidates; auto-approved rows currently land with `owner = NULL` and are not owner-gated. Also stored in `instructions.given_by`. Defaults to `owner` |
 | `AMS_DB_PATH` | Override the SQLite DB path. Defaults to `./memory.db` |
 | `AGENT_PROMPT_DIR` | Directory of agent prompt files. Defaults to `./prompts/` |
 
