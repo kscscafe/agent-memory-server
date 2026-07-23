@@ -10,7 +10,7 @@ Run manually:
     python3 sync_status_to_project.py --session-key <KEY>
 
 Session key resolution goes through session_key.get_session_key
-(Keychain → CLAUDE_SESSION_KEY env var → --session-key CLI flag).
+(Keychain → --session-key CLI flag).
 """
 
 import argparse
@@ -58,8 +58,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--session-key",
                    default=None,
                    help="claude.ai sessionKey cookie "
-                        "(overrides Keychain / CLAUDE_SESSION_KEY env var only "
-                        "if neither of those returns a value)")
+                        "(used only if Keychain lookup returns no value)")
     p.add_argument("--only",
                    default=None,
                    help="only broadcast to the named agent "
@@ -94,7 +93,7 @@ def main() -> int:
     if not session_key:
         sys.exit(
             "session key not found (checked Keychain service "
-            "'claude-session-key', CLAUDE_SESSION_KEY env, --session-key)"
+            "'claude-session-key' and --session-key CLI flag)"
         )
 
     if not DB_PATH.exists():

@@ -25,6 +25,11 @@ memory.db.pre-*.bak
 # ── Runtime & logs ────────────────────────────────────────────────
 *.log
 *.pid
+logs/
+logs_archive/
+
+# ── Claude Code local settings ────────────────────────────────────
+.claude/
 
 # ── Local override for user-specific config / prompts ─────────────
 config.yaml
