@@ -33,24 +33,25 @@ This repository is **unrelated** to Redis Inc.'s OSS project of the same name
 (<https://github.com/redis/agent-memory-server>). The design goals and isolation
 models differ:
 
-| Aspect | This AMS | Redis Agent Memory Server / Mem0 / Zep |
+| Aspect | This AMS | Redis Agent Memory Server |
 |---|---|---|
 | Unit of isolation | Per AI-agent persona (owner gate) | Per human user / namespace |
 | Target deployment | One human, many long-lived specialist personas | Many human users, one or a few agents |
-| Pre-save review | Pending queue with configurable auto-approval; Codex proposals require manual review | Auto-extract + auto-save by default |
-| Infra footprint | SQLite only, self-hosted end-to-end | Usually needs Redis or another external DB |
+| Pre-save review | Pending queue with category-based auto-approval (categories are hardcoded in `pending_approver.py`, not yet configurable); Codex proposals require manual review | Auto-extract + auto-save by default |
+| Infra footprint | SQLite only, self-hosted end-to-end | Redis as the primary store |
 
 ## What it provides
 
 - **Semantic / procedural / episodic memory tables** with hybrid retrieval
   (FTS5 full-text + vector search fused via Reciprocal Rank Fusion).
-- **Agent-level write isolation (owner gate)**: when a semantic memory record
-  has an `owner` set, only that agent can overwrite it — writes from other
-  agents are rejected with HTTP 403. Owner is populated on direct REST/MCP
-  writes (`POST /memory/semantic`, `save_memory`) and on manual approval of
-  pending candidates. Records promoted by the scheduler's auto-approval path
-  currently land with `owner = NULL` and are not yet owner-gated (Phase 2
-  backlog); the gate protects records saved through the owner-aware paths.
+- **Agent-level write isolation (owner gate)**: on direct REST/MCP writes
+  (`POST /memory/semantic`, `save_memory`) and on manual approval of pending
+  candidates, the semantic memory record's `owner` column is populated from
+  the `agent` field supplied with the write. Subsequent writes to that key
+  from a different `agent` are rejected with HTTP 403. Records promoted by
+  the scheduler's auto-approval path currently land with `owner = NULL` and
+  are not yet owner-gated (Phase 2 backlog); the gate protects records
+  saved through the owner-aware paths.
 - **REST API** (`main.py`, default port 8000) for storing/searching memories,
   tracking instructions, and running an inbox workflow.
 - **MCP server** (`mcp_server.py`, default port 8001) exposing memory tools
@@ -146,7 +147,7 @@ cp .env.example .env
 | `AMS_LAN_URL` | Optional LAN URL for status pages |
 | `MCP_ISSUER_URL` | MCP OAuth issuer (defaults to `http://localhost:8001`) |
 | `MCP_PORT` | MCP server port (default `8001`) |
-| `OWNER_HANDLE` | Identifier for the owner-gate check. When a `semantic_memories` row has `owner` set, writes from any other agent are rejected with HTTP 403. Owner is populated on direct REST/MCP writes and on manually-approved pending candidates; auto-approved rows currently land with `owner = NULL` and are not owner-gated. Also stored in `instructions.given_by`. Defaults to `owner` |
+| `OWNER_HANDLE` | Human/operator identifier stored in `instructions.given_by`. This is **unrelated** to semantic-memory ownership — semantic memory ownership is determined by the `agent` field supplied with each write (see *Agent-level write isolation* above). Defaults to `owner` |
 | `AMS_DB_PATH` | Override the SQLite DB path. Defaults to `./memory.db` |
 | `AGENT_PROMPT_DIR` | Directory of agent prompt files. Defaults to `./prompts/` |
 
