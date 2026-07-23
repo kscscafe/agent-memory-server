@@ -5,10 +5,48 @@ FastAPI service backed by SQLite (with FTS5 + `sqlite-vec` for hybrid search)
 and exposes both a REST API and an MCP (Model Context Protocol) endpoint that
 Claude Desktop, Claude Code, or Claude.ai Web can query directly.
 
+## What is this?
+
+The AMS assumes a specific topology: **one human user with a stable of long-lived
+AI agent personas** (e.g. a technical lead, a business advisor, a study coach)
+running in parallel. Each persona keeps its own memory, but all of them share a
+single SQLite substrate (semantic / procedural / episodic tables). The primary
+target is long-lived personas configured as Claude Projects; both the REST and
+MCP interfaces expose the same underlying store.
+
+This is a different axis from **multi-tenant memory servers that isolate multiple
+human end-users** (Redis Agent Memory Server, Mem0, Zep, Cognee, etc.). Those
+projects are built for "many humans × few agents" isolation; the AMS is built
+for "one human × many long-lived agent personas".
+
+Codex also has a "multi-agent" story, but Codex-style multi-agent is
+**task-decomposition** — a manager farms sub-tasks out to worker agents on a
+project-scoped thread — rather than a stable of persistent personas with
+long-term memory. The AMS is MCP-compliant, so any MCP client (Codex included)
+can technically connect, but running Codex as a home for long-lived multi-persona
+setups has not been validated by this project.
+
+## Not the Redis OSS with the same name
+
+This repository is **unrelated** to Redis Inc.'s OSS project of the same name
+(<https://github.com/redis/agent-memory-server>). The design goals and isolation
+models differ:
+
+| Aspect | This AMS | Redis Agent Memory Server / Mem0 / Zep |
+|---|---|---|
+| Unit of isolation | Per AI-agent persona (owner gate) | Per human user / namespace |
+| Target deployment | One human, many long-lived specialist personas | Many human users, one or a few agents |
+| Pre-save review | Built-in approval flow (`save_candidate`) | Auto-extract + auto-save by default |
+| Infra footprint | SQLite only, self-hosted end-to-end | Usually needs Redis or another external DB |
+
 ## What it provides
 
 - **Semantic / procedural / episodic memory tables** with hybrid retrieval
   (FTS5 full-text + vector search fused via Reciprocal Rank Fusion).
+- **Agent-level write isolation (owner gate)**: writes to memory records are
+  gated by an agent identifier (`OWNER_HANDLE`). Attempts to overwrite records
+  owned by another agent are rejected with HTTP 403, so multiple AI personas can
+  share one substrate without stepping on each other's memory.
 - **REST API** (`main.py`, default port 8000) for storing/searching memories,
   tracking instructions, and running an inbox workflow.
 - **MCP server** (`mcp_server.py`, default port 8001) exposing memory tools
@@ -104,7 +142,7 @@ cp .env.example .env
 | `AMS_LAN_URL` | Optional LAN URL for status pages |
 | `MCP_ISSUER_URL` | MCP OAuth issuer (defaults to `http://localhost:8001`) |
 | `MCP_PORT` | MCP server port (default `8001`) |
-| `OWNER_HANDLE` | String stored in `instructions.given_by`. Defaults to `owner` |
+| `OWNER_HANDLE` | Identifier used for agent-level write isolation (owner gate). Writes targeting records owned by a different agent are rejected with HTTP 403, so multiple AI personas can share one substrate without accidentally overwriting each other. Also stored in `instructions.given_by`. Defaults to `owner` |
 | `AMS_DB_PATH` | Override the SQLite DB path. Defaults to `./memory.db` |
 | `AGENT_PROMPT_DIR` | Directory of agent prompt files. Defaults to `./prompts/` |
 
