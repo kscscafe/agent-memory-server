@@ -262,7 +262,7 @@ async def auto_extract_memory(
             agent = (s.get("agent") or "").strip()
             if not (key and value and category):
                 continue
-            if agent not in VALID_AGENTS:
+            if VALID_AGENTS is not None and agent not in VALID_AGENTS:
                 agent = "agent_a"
             await db.execute(
                 """
@@ -283,7 +283,7 @@ async def auto_extract_memory(
             rule = (p.get("rule") or "").strip()
             if not (agent and rule):
                 continue
-            if agent not in VALID_AGENTS:
+            if VALID_AGENTS is not None and agent not in VALID_AGENTS:
                 agent = "agent_a"
             await db.execute(
                 """
@@ -299,7 +299,7 @@ async def auto_extract_memory(
             summary = (e.get("summary") or "").strip()
             if not (agent and summary):
                 continue
-            if agent not in VALID_AGENTS:
+            if VALID_AGENTS is not None and agent not in VALID_AGENTS:
                 agent = "agent_a"
             await db.execute(
                 """

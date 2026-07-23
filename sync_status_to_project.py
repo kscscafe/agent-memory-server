@@ -15,6 +15,8 @@ Session key resolution goes through session_key.get_session_key
 
 import argparse
 import asyncio
+import json
+import os
 import sys
 from pathlib import Path
 
@@ -39,18 +41,14 @@ KEEP_FILENAMES: set[str] = {
     AGENT_CONTEXT_REMOTE_NAME,
 }
 
-# Broadcast targets: every agent's project UUID on claude.ai.
-# operator is intentionally excluded (not a conversational persona).
-AGENT_PROJECTS: dict[str, str] = {
-    "agent_a": "019d915d-0b85-7331-922d-f02a9908d7db",
-    "agent_b":   "019d8c01-315b-73d5-bc1f-247d14fee0f3",
-    "agent_c":   "019d8c51-b098-76bb-bd16-421245c4573d",
-    "agent_d":   "019d8e42-acbe-7017-bbdc-79e71444ff7c",
-    "agent_e":   "019d8e41-7f87-74dd-8d4a-00f04ab2e9d3",
-    "agent_h":     "019d908d-e652-75ae-89b5-dec68b508c07",
-    "agent_f":   "019d8cad-e8bf-75d7-b3a7-aec051cc9555",
-    "agent_g":   "019e6ba0-b49f-713d-b93e-389a5b247857",
-}
+# Broadcast targets: agent name -> Claude Project UUID.
+# Configure via the AGENT_PROJECTS env var as a JSON object, e.g.:
+#   AGENT_PROJECTS='{"alice": "019d915d-...", "bob": "019d8c01-..."}'
+# Empty (the default) disables broadcast — the script will exit early if no
+# targets are configured.
+AGENT_PROJECTS: dict[str, str] = json.loads(
+    os.environ.get("AGENT_PROJECTS", "{}")
+)
 
 
 def parse_args() -> argparse.Namespace:

@@ -3,6 +3,7 @@
 Mounted onto the main FastAPI app as a router under /memory. Auth reuses the
 project-wide X-API-Key dependency from main.
 """
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -72,14 +73,21 @@ def _require_nonempty(v: str, field: str) -> str:
     return str(v).strip()
 
 
-VALID_AGENTS: frozenset[str] = frozenset({
-    "agent_a", "agent_b", "agent_c", "agent_d", "agent_e", "agent_h", "agent_f", "operator", "agent_g",
-})
+# Optional allowlist of agent names. Set VALID_AGENTS in the environment to a
+# comma-separated list (e.g. "alice,bob,carol") to reject writes whose agent
+# field is outside the list. Leave the env var unset (or empty) to accept any
+# non-empty agent name — this is the default for fresh installs.
+_valid_agents_env = os.environ.get("VALID_AGENTS", "").strip()
+VALID_AGENTS: Optional[frozenset[str]] = (
+    frozenset(a.strip() for a in _valid_agents_env.split(",") if a.strip())
+    if _valid_agents_env
+    else None
+)
 
 
 def _require_valid_agent(v: str) -> str:
     s = _require_nonempty(v, "agent")
-    if s not in VALID_AGENTS:
+    if VALID_AGENTS is not None and s not in VALID_AGENTS:
         allowed = ", ".join(sorted(VALID_AGENTS))
         raise ValueError(f"agent must be one of: {allowed}")
     return s
@@ -230,7 +238,7 @@ def build_router(verify_api_key) -> APIRouter:
         api_key: str = Depends(verify_api_key),
     ):
         """Return a paginated, filterable catalogue without full values."""
-        if agent is not None and agent not in VALID_AGENTS:
+        if agent is not None and VALID_AGENTS is not None and agent not in VALID_AGENTS:
             raise HTTPException(status_code=400, detail="invalid agent")
         if category is not None and category not in ALLOWED_CATEGORIES:
             raise HTTPException(status_code=400, detail="invalid category")
@@ -312,7 +320,7 @@ def build_router(verify_api_key) -> APIRouter:
         delete it. FTS5 rows are cleaned by the AFTER DELETE trigger; the vector
         embedding is removed on a best-effort basis.
         """
-        if agent not in VALID_AGENTS:
+        if VALID_AGENTS is not None and agent not in VALID_AGENTS:
             raise HTTPException(status_code=400, detail="invalid agent")
         async with aiosqlite.connect(DB_PATH) as db:
             db.row_factory = aiosqlite.Row

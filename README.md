@@ -88,6 +88,7 @@ migrate_add_vectors.py           # One-off migration: add vector columns
 migrate_drive_sessions.py        # One-off migration: Drive session table
 session_key.py                   # Rotating session-key generator
 sync_status_to_project.py        # Push status snapshot to a Claude Project
+                                 #   (targets configured via AGENT_PROJECTS env var)
 maintenance.py                   # DB maintenance / integrity checks
 test_inbox.py                    # Inbox smoke tests
 test_ownership_and_validation.py # Ownership & validation smoke tests
@@ -150,6 +151,8 @@ cp .env.example .env
 | `OWNER_HANDLE` | Human/operator identifier stored in `instructions.given_by`. This is **unrelated** to semantic-memory ownership — semantic memory ownership is determined by the `agent` field supplied with each write (see *Agent-level write isolation* above). Defaults to `owner` |
 | `AMS_DB_PATH` | Override the SQLite DB path. Defaults to `./memory.db` |
 | `AGENT_PROMPT_DIR` | Directory of agent prompt files. Defaults to `./prompts/` |
+| `VALID_AGENTS` | Comma-separated allowlist of agent names (e.g. `alice,bob`). Leave empty/unset to accept any non-empty agent name — the fresh-install default |
+| `AGENT_PROJECTS` | JSON mapping of agent name → Claude Project UUID, consumed by `sync_status_to_project.py` to broadcast `agent_status.md` to Claude Projects. Defaults to `{}` (broadcast disabled) |
 
 ### 3. Customize agent prompts (optional)
 
