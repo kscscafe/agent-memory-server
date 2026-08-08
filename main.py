@@ -56,7 +56,7 @@ def _is_chat_message(text: str) -> bool:
     """Return True if the LINE text should be answered as a chat reply rather
     than saved as an instruction. OK:<id> / LATER:<id> are control replies and
     branch earlier in the webhook, so they normally never reach here.
-    Status-update messages (e.g. 「REDACTED 公開中」) also branch earlier via
+    Status-update messages (e.g. 「<app-name> 公開中」) also branch earlier via
     `_looks_like_status_update`, so they will not be mis-classified here."""
     if text.startswith("OK:") and text[3:].isdigit():
         return False
@@ -187,8 +187,8 @@ MEMORY_EXTRACT_USER_TEMPLATE = """以下のメッセージから記憶すべき�
 抽出できない場合は各配列を空にしてください。
 category は app_status / design_decision / agent_rule / task のいずれか。
 key は英数小文字とアンダースコアのみで一意になる短い識別子（例: app_loud_ios_status）。
-agent は次のいずれかに限定: agent_a / agent_b / agent_c / agent_d / agent_e / agent_h / agent_f / operator / agent_g。
-判別できない場合は "agent_a" を指定してください。"""
+agent は VALID_AGENTS 環境変数で列挙された名前のいずれか
+(未設定なら任意の非空文字列)。判別できない場合は DEFAULT_AGENT を指定してください。"""
 
 
 def _extract_memory_sync(message: str) -> dict | None:
@@ -263,7 +263,7 @@ async def auto_extract_memory(
             if not (key and value and category):
                 continue
             if VALID_AGENTS is not None and agent not in VALID_AGENTS:
-                agent = "agent_a"
+                agent = DEFAULT_AGENT_NAME
             await db.execute(
                 """
                 INSERT INTO semantic_memories (key, value, category, agent)
@@ -284,7 +284,7 @@ async def auto_extract_memory(
             if not (agent and rule):
                 continue
             if VALID_AGENTS is not None and agent not in VALID_AGENTS:
-                agent = "agent_a"
+                agent = DEFAULT_AGENT_NAME
             await db.execute(
                 """
                 INSERT INTO procedural_memories (agent, rule, source)
@@ -300,7 +300,7 @@ async def auto_extract_memory(
             if not (agent and summary):
                 continue
             if VALID_AGENTS is not None and agent not in VALID_AGENTS:
-                agent = "agent_a"
+                agent = DEFAULT_AGENT_NAME
             await db.execute(
                 """
                 INSERT INTO episodic_memories (agent, summary, topics, session_date)
@@ -327,7 +327,7 @@ async def _safe_auto_extract(
 
 STATUS_TRIGGER_KEYWORDS = ("販売中", "公開中", "審査中", "開発中", "停止中")
 STATUS_VALUES = ("公開中", "審査中", "販売中", "開発中", "リジェクト", "配信停止", "提出済")
-PLATFORM_TOKENS = ("iOS", "iPadOS", "watchOS", "macOS", "Android", "KDP", "web")
+PLATFORM_TOKENS = ("iOS", "iPadOS", "watchOS", "macOS", "Android", "web")
 VERSION_RE = re.compile(r"v?\d+\.\d+(?:\.\d+)?(?:\([\d]+\))?")
 
 
@@ -475,6 +475,17 @@ LAN_URL = os.environ.get("AMS_LAN_URL", "")
 TAILSCALE_URL = os.environ.get("AMS_PUBLIC_URL", "http://localhost:8000")
 MCP_URL = f"{TAILSCALE_URL}/mcp"
 OWNER_HANDLE = os.environ.get("OWNER_HANDLE", "owner")
+DEFAULT_AGENT_NAME = os.environ.get("DEFAULT_AGENT", "default").strip() or "default"
+
+
+def _status_update_hint() -> str:
+    """Fallback line shown when the status parser cannot extract updates.
+    Configure via STATUS_UPDATE_HINT_EXAMPLES ('|' separates examples)."""
+    raw = os.environ.get("STATUS_UPDATE_HINT_EXAMPLES", "").strip()
+    if not raw:
+        return "例: 「<app-name> <platform> <status>」形式で送ってください。"
+    examples = " ".join(f"「{ex.strip()}」" for ex in raw.split("|") if ex.strip())
+    return f"例: {examples}"
 
 
 def _md_cell(value) -> str:
@@ -483,38 +494,29 @@ def _md_cell(value) -> str:
     return str(value).replace("|", "\\|").replace("\n", " ")
 
 
-AGENT_NAME_JA: dict[str, str] = {
-    "hack": "agent_a",
-    "kirishima": "agent_b",
-    "riku": "agent_c",
-    "kei": "agent_d",
-    "tera": "agent_e",
-    "koe": "agent_h",
-    "gunso": "agent_f",
-    "operator": "operator",
-    "maru": "agent_g",
-}
+# Roman-key → display-name (JSON dict via env). Used by the per-agent
+# `agent_status.md` writer and by other logging paths.
+try:
+    AGENT_NAME_JA: dict[str, str] = json.loads(
+        os.environ.get("AGENT_NAME_JA", "{}") or "{}"
+    )
+    if not isinstance(AGENT_NAME_JA, dict):
+        AGENT_NAME_JA = {}
+except json.JSONDecodeError:
+    AGENT_NAME_JA = {}
 
 
-AGENT_DEFINITIONS: list[dict] = [
-    {"name": "agent_f", "role": "司令塔・全戦線把握",
-     "drive_id": "REDACTED_DRIVE_ID_7"},
-    {"name": "operator",  "role": "Slack受付・自動実行（LINE版廃止済み）", "drive_id": "Slack経由で管理"},
-    {"name": "agent_a", "role": "技術サポート",
-     "drive_id": "REDACTED_DRIVE_ID_1"},
-    {"name": "agent_b", "role": "ビジネス参謀",
-     "drive_id": "REDACTED_DRIVE_ID_2"},
-    {"name": "agent_c", "role": "REDACTED専任・App Store",
-     "drive_id": "REDACTED_DRIVE_ID_3"},
-    {"name": "agent_d", "role": "学習コーチ",
-     "drive_id": "REDACTED_DRIVE_ID_4"},
-    {"name": "agent_e", "role": "REDACTED担当",
-     "drive_id": "REDACTED_DRIVE_ID_5"},
-    {"name": "agent_h",   "role": "note編集",
-     "drive_id": "REDACTED_DRIVE_ID_6"},
-    {"name": "agent_g", "role": "パーソナルアドバイザー（家計・健康・家事・買い物）",
-     "drive_id": "TBD"},
-]
+# Structured agent registry for the dashboard (JSON list of dicts). Each entry:
+#   {"name": "<display>", "role": "<human text>", "drive_id": "<opt id>"}
+# Empty list = skip the per-agent block in the dashboard entirely.
+try:
+    AGENT_DEFINITIONS: list[dict] = json.loads(
+        os.environ.get("AGENT_DEFINITIONS", "[]") or "[]"
+    )
+    if not isinstance(AGENT_DEFINITIONS, list):
+        AGENT_DEFINITIONS = []
+except json.JSONDecodeError:
+    AGENT_DEFINITIONS = []
 
 
 async def _regenerate_agent_status_md() -> None:
@@ -950,7 +952,7 @@ async def init_db():
         # Low-friction capture inbox — raw items from LINE/Slack/MCP/API.
         # Owner-gate / category checks intentionally do NOT apply here; the
         # only validation is content non-empty. Items are later promoted into
-        # semantic_memories via operator's approval flow.
+        # semantic_memories via the operator's approval flow.
         await db.execute(
             """
             CREATE TABLE IF NOT EXISTS inbox (
@@ -1054,7 +1056,12 @@ class InstructionCreate(BaseModel):
     given_by: str = OWNER_HANDLE
 
 
-STUDY_MAP_SUBJECTS = ("確率統計", "AIプログラミング", "Python", "UNIX")
+# Subject allowlist for the /api/study-map endpoint. Configured via env var
+# STUDY_MAP_SUBJECTS (comma-separated). Empty = endpoint rejects every subject
+# with 400 (feature effectively disabled).
+STUDY_MAP_SUBJECTS: tuple[str, ...] = tuple(
+    s.strip() for s in os.environ.get("STUDY_MAP_SUBJECTS", "").split(",") if s.strip()
+)
 
 STUDY_MAP_CORS = {
     "Access-Control-Allow-Origin": "*",
@@ -1095,7 +1102,8 @@ async def _persist_study_map(subject, session, data) -> tuple[bool, dict, int]:
                     agent = excluded.agent,
                     updated_at = datetime('now')
                 """,
-                (key, value, "study", "agent_d"),
+                (key, value, "study",
+                 os.environ.get("STUDY_COACH_AGENT") or DEFAULT_AGENT_NAME),
             )
             await db.commit()
             try:
@@ -1178,13 +1186,18 @@ async def study_map_generate_post(request: Request) -> JSONResponse:
             status_code=500, headers=STUDY_MAP_CORS,
         )
 
-    system_prompt = (
-        "あなたはREDACTEDの学習コーチです。\n"
-        "ユーザーが貼り付けたNotebookLMのまとめから、以下のJSON形式のみを返してください（余分なテキスト不要）:\n"
-        '{"title":"...","summary":"...","keywords":[...],"problems":[{"question":"...","answer":"...","explanation":"..."}]}\n'
-        f"科目：{subject} 第{session}回\n"
-        "問題例は2〜3問、試験に出そうな具体的な問題にしてください。"
-    )
+    # Study-map system prompt is fully user-configured via env. Empty = feature
+    # disabled (endpoint returns 503 to make the misconfiguration obvious).
+    system_prompt_template = os.environ.get("STUDY_MAP_SYSTEM_PROMPT", "").strip()
+    if not system_prompt_template:
+        return JSONResponse(
+            {"ok": False, "error": "STUDY_MAP_SYSTEM_PROMPT not configured"},
+            status_code=503, headers=STUDY_MAP_CORS,
+        )
+    try:
+        system_prompt = system_prompt_template.format(subject=subject, session=session)
+    except (KeyError, IndexError):
+        system_prompt = system_prompt_template
 
     try:
         import anthropic
@@ -1737,8 +1750,7 @@ async def _process_inbound_text(
             else:
                 body = (
                     "⚠️ ステータス更新の対象を抽出できませんでした。\n"
-                    "例: 「KDP REDACTED 販売中」「REDACTED iOS 公開中」"
-                    "「REDACTED iOS を 1.2.0 公開中 に」"
+                    + _status_update_hint()
                 )
             await send_slack_message(body)
 
@@ -1772,9 +1784,9 @@ async def _process_inbound_text(
                 INSERT INTO instructions
                     (content, given_by, assigned_to, status, priority, auto_execute,
                      line_message_id, created_at, updated_at)
-                VALUES (?, ?, 'operator', 'pending', 'high', 1, ?, ?, ?)
+                VALUES (?, ?, ?, 'pending', 'high', 1, ?, ?, ?)
                 """,
-                (text, OWNER_HANDLE, line_msg_id, ts, ts),
+                (text, OWNER_HANDLE, DEFAULT_AGENT_NAME, line_msg_id, ts, ts),
             )
             instruction_id = cur.lastrowid
             await db.execute(
@@ -1906,7 +1918,7 @@ async def line_webhook(request: Request):
 async def slack_webhook(request: Request):
     """Receive the owner's Slack DMs. Verifies Slack signing-secret signature and
     routes valid messages through the shared inbound pipeline. Handles
-    url_verification handshake and ignores operator's own bot messages."""
+    url_verification handshake and ignores the bot's own messages."""
     body = await request.body()
     sig = request.headers.get("X-Slack-Signature", "")
     sig_ts = request.headers.get("X-Slack-Request-Timestamp", "")
@@ -1929,13 +1941,13 @@ async def slack_webhook(request: Request):
     if event.get("type") != "message":
         return {"status": "ignored"}
 
-    # Prevent reply loops: skip any message authored by operator or any other bot.
+    # Prevent reply loops: skip any message authored by the bot itself.
     if event.get("bot_id") or event.get("subtype") == "bot_message":
         return {"status": "ignored"}
 
     # Only the owner's DM to the bot is routed through the instruction pipeline.
-    REDACTED_uid = os.environ.get("SLACK_USER_ID", "")
-    if REDACTED_uid and event.get("user") != REDACTED_uid:
+    owner_uid = os.environ.get("SLACK_USER_ID", "")
+    if owner_uid and event.get("user") != owner_uid:
         return {"status": "ignored"}
     channel_type = event.get("channel_type")
     if channel_type and channel_type != "im":

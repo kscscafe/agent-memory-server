@@ -9,6 +9,7 @@ in the same directory before running:
 
 import io
 import json
+import os
 import re
 import sqlite3
 import sys
@@ -35,14 +36,16 @@ TOKEN_PATH = PROJECT_DIR / "token.json"
 
 SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
 
-AGENT_FOLDERS = {
-    "agent_b":   "REDACTED_DRIVE_ID_2",
-    "agent_c":   "REDACTED_DRIVE_ID_3",
-    "agent_e":   "REDACTED_DRIVE_ID_5",
-    "agent_d":   "REDACTED_DRIVE_ID_4",
-    "agent_h":     "REDACTED_DRIVE_ID_6",
-    "agent_a": "REDACTED_DRIVE_ID_1",
-}
+# Drive folder map is read from the shared AGENT_DRIVE_FOLDERS env var (JSON:
+# {"<display-name>": "<folder-id>"}). Empty = script exits early.
+try:
+    AGENT_FOLDERS: dict[str, str] = json.loads(
+        os.environ.get("AGENT_DRIVE_FOLDERS", "{}") or "{}"
+    )
+    if not isinstance(AGENT_FOLDERS, dict):
+        AGENT_FOLDERS = {}
+except json.JSONDecodeError:
+    AGENT_FOLDERS = {}
 
 # Patterns tried in order. First match wins.
 DATE_PATTERNS = [
@@ -157,6 +160,13 @@ def download_text(drive, file_id: str) -> str:
 
 
 def main() -> int:
+    if not AGENT_FOLDERS:
+        print(
+            "AGENT_DRIVE_FOLDERS env var is empty — nothing to migrate.",
+            file=sys.stderr,
+        )
+        return 0
+
     drive = get_drive_service()
     conn = sqlite3.connect(DB_PATH)
     ensure_schema(conn)

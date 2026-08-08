@@ -180,7 +180,12 @@ def _save_message(channel_id: str, msg: dict, bot_user_id: Optional[str]) -> boo
             con.execute(
                 "INSERT INTO episodic_memories"
                 "(agent, summary, topics, session_date) VALUES (?, ?, ?, ?)",
-                ("operator", summary, "slack,REDACTED_dm", session_date),
+                (
+                    os.environ.get("DEFAULT_AGENT", "default"),
+                    summary,
+                    "slack,owner_dm",
+                    session_date,
+                ),
             )
         con.commit()
     finally:

@@ -3,20 +3,21 @@
 # config.yaml is gitignored.
 
 # Registered agent personas. `id` is the canonical key used in prompt files
-# (e.g. id=operator → prompts/operator.md loaded first, falling back to operator.example.md).
-# `display_name` is only used in status / notification messages.
+# (e.g. id=default → prompts/default.md loaded first, falling back to
+# default.example.md). `display_name` is only used in status / notification
+# messages.
 agents:
-  - id: operator
-    display_name: operator
-  - id: hack
-    display_name: Hack
-  - id: kirishima
-    display_name: Kirishima
-  - id: rik
-    display_name: Rik
+  - id: default
+    display_name: Default
+  - id: engineer
+    display_name: Engineer
+  - id: analyst
+    display_name: Analyst
+  - id: planner
+    display_name: Planner
 
 # Default assignee when an instruction arrives without an explicit target.
-default_assignee: hack
+default_assignee: default
 
 # Example subject list for the study-progress map endpoint. Replace with the
 # categories relevant to your workflow.

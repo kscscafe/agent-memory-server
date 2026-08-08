@@ -60,7 +60,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--only",
                    default=None,
                    help="only broadcast to the named agent "
-                        "(matches an AGENT_PROJECTS key, e.g. 'agent_a')")
+                        "(matches an AGENT_PROJECTS key, e.g. 'alice')")
     return p.parse_args()
 
 

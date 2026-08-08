@@ -1,6 +1,7 @@
 """Pull per-agent .md notes from Google Drive into the memory layer.
 
-Each agent has a Drive folder (see AGENT_FOLDERS). Every 10 minutes the
+Each agent has a Drive folder configured via the ``AGENT_DRIVE_FOLDERS`` env
+var (JSON: ``{"<display-name>": "<folder-id>", ...}``). Every 10 minutes the
 scheduler calls sync_all_agents(). For each new .md file (deduped by
 Drive file_id, NOT by name) we:
 
@@ -10,12 +11,15 @@ Drive file_id, NOT by name) we:
 
 After any successful imports we regenerate agent_status.md.
 
-If service_account.json is missing, sync_all_agents() logs and returns 0
-without touching anything — safe to wire into the scheduler unconditionally.
+If ``AGENT_DRIVE_FOLDERS`` is empty (or invalid JSON) sync_all_agents() is a
+no-op — a fresh install can leave the env var unset. If service_account.json
+is missing, sync_all_agents() logs and returns 0 without touching anything.
 """
 from __future__ import annotations
 
 import asyncio
+import json
+import os
 import re
 import sqlite3
 from datetime import datetime
@@ -25,16 +29,14 @@ PROJECT_DIR = Path(__file__).resolve().parent
 DB_PATH = PROJECT_DIR / "memory.db"
 SERVICE_ACCOUNT_PATH = PROJECT_DIR / "service_account.json"
 
-AGENT_FOLDERS: dict[str, str] = {
-    "agent_a": "REDACTED_DRIVE_ID_1",
-    "agent_b":  "REDACTED_DRIVE_ID_2",
-    "agent_c":  "REDACTED_DRIVE_ID_3",
-    "agent_d":  "REDACTED_DRIVE_ID_4",
-    "agent_e":  "REDACTED_DRIVE_ID_5",
-    "agent_h":   "REDACTED_DRIVE_ID_6",
-    "agent_f":  "REDACTED_DRIVE_ID_7",
-    "agent_g":  "REDACTED_DRIVE_ID_8",
-}
+try:
+    AGENT_FOLDERS: dict[str, str] = json.loads(
+        os.environ.get("AGENT_DRIVE_FOLDERS", "{}") or "{}"
+    )
+    if not isinstance(AGENT_FOLDERS, dict):
+        AGENT_FOLDERS = {}
+except json.JSONDecodeError:
+    AGENT_FOLDERS = {}
 
 SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
 
@@ -265,6 +267,10 @@ def sync_all_agents() -> int:
     Wrapped in broad try/except per agent — one agent's failure (auth,
     permissions, network) must not block the others.
     """
+    if not AGENT_FOLDERS:
+        _log("AGENT_DRIVE_FOLDERS is empty — drive sync disabled")
+        return 0
+
     service = _build_drive_service()
     if service is None:
         _notify_slack(

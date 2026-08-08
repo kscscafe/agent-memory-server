@@ -69,14 +69,14 @@ def run_owner_and_validation_tests(client) -> None:
         headers=HEADERS,
         json={
             "key": key,
-            "value": "初回書き込みでagent_aが所有者になることを確認するための十分な長さ",
+            "value": "初回書き込みでaliceが所有者になることを確認するための十分な長さ",
             "category": "design_decision",
-            "agent": "agent_a",
+            "agent": "alice",
         },
     )
     _expect(r.status_code == 200, f"first write succeeds ({r.status_code})")
     body = r.json()
-    _expect(body.get("owner") == "agent_a", f"owner=agent_a recorded ({body.get('owner')!r})")
+    _expect(body.get("owner") == "alice", f"owner=alice recorded ({body.get('owner')!r})")
     _expect("warning" not in body, "no thin-write warning on full-length value")
 
     # 2. Same owner updates → 200.
@@ -85,9 +85,9 @@ def run_owner_and_validation_tests(client) -> None:
         headers=HEADERS,
         json={
             "key": key,
-            "value": "agent_aが自分のキーを更新できることを確認する2回目の書き込み",
+            "value": "aliceが自分のキーを更新できることを確認する2回目の書き込み",
             "category": "design_decision",
-            "agent": "agent_a",
+            "agent": "alice",
         },
     )
     _expect(r.status_code == 200, f"owner can update its own key ({r.status_code})")
@@ -98,9 +98,9 @@ def run_owner_and_validation_tests(client) -> None:
         headers=HEADERS,
         json={
             "key": key,
-            "value": "agent_bがagent_aのキーを上書きしようとして拒否されるべきケース",
+            "value": "bobがaliceのキーを上書きしようとして拒否されるべきケース",
             "category": "design_decision",
-            "agent": "agent_b",
+            "agent": "bob",
         },
     )
     _expect(
@@ -108,7 +108,7 @@ def run_owner_and_validation_tests(client) -> None:
         f"non-owner blocked with 403 (got {r.status_code})",
     )
     _expect(
-        "owned by 'agent_a'" in r.json().get("detail", ""),
+        "owned by 'alice'" in r.json().get("detail", ""),
         "error message names the rightful owner",
     )
 
@@ -120,7 +120,7 @@ def run_owner_and_validation_tests(client) -> None:
             "key": "smoke_key_bad_category",
             "value": "カテゴリが不正なので拒否されるべき書き込みテスト",
             "category": "mac_mini_repo",  # removed from ALLOWED_CATEGORIES
-            "agent": "agent_a",
+            "agent": "alice",
         },
     )
     _expect(
@@ -136,7 +136,7 @@ def run_owner_and_validation_tests(client) -> None:
             "key": "smoke_key_thin_write",
             "value": "短い",  # only 2 chars
             "category": "task",
-            "agent": "agent_a",
+            "agent": "alice",
         },
     )
     _expect(r.status_code == 200, f"thin write still succeeds ({r.status_code})")
@@ -152,13 +152,13 @@ def run_owner_and_validation_tests(client) -> None:
         headers=HEADERS,
         json={
             "key": "smoke_key_kirishima_owns",
-            "value": "agent_bが新規キーを作るのは当然できる（既存挙動の後方互換確認）",
+            "value": "bobが新規キーを作るのは当然できる（既存挙動の後方互換確認）",
             "category": "surface",
-            "agent": "agent_b",
+            "agent": "bob",
         },
     )
     _expect(
-        r.status_code == 200 and r.json().get("owner") == "agent_b",
+        r.status_code == 200 and r.json().get("owner") == "bob",
         "fresh key by another agent succeeds and records its own owner",
     )
 
@@ -166,16 +166,16 @@ def run_owner_and_validation_tests(client) -> None:
 def run_pending_promotion_test(client) -> None:
     print("\n[2/3] owner gate on pending → semantic promotion")
 
-    # agent_a owns smoke_key_owner_gate_01 from the previous test.
-    # A pending decision from agent_b with the same key must NOT be approvable.
+    # alice owns smoke_key_owner_gate_01 from the previous test.
+    # A pending decision from bob with the same key must NOT be approvable.
     r = client.post(
         "/memory/pending",
         headers=HEADERS,
         json={
             "key": "smoke_key_owner_gate_01",
-            "value": "agent_bがpending経由で上書きを試みるが、承認時に拒否されるべき",
+            "value": "bobがpending経由で上書きを試みるが、承認時に拒否されるべき",
             "category": "design_decision",
-            "agent": "agent_b",
+            "agent": "bob",
             "source": "smoke-test",
         },
     )
@@ -219,7 +219,7 @@ def run_checkout_test(client) -> None:
     r = client.post(
         "/api/session/checkout",
         headers=HEADERS,
-        json={"agent": "agent_a", "summary_text": "   "},
+        json={"agent": "alice", "summary_text": "   "},
     )
     _expect(r.status_code == 400, f"empty summary rejected ({r.status_code})")
 
@@ -259,9 +259,9 @@ def run_checkout_test(client) -> None:
                 "/api/session/checkout",
                 headers=HEADERS,
                 json={
-                    "agent": "agent_a",
+                    "agent": "alice",
                     "summary_text": (
-                        "今日はREDACTEDの週ランキングを実装し、Supabase関数を追加した。"
+                        "今日はサンプルアプリの週ランキング機能を実装した。"
                         "operatorから次にAMSの所有者ゲートを実装する指示を受けた。"
                     ),
                 },
@@ -300,7 +300,7 @@ def run_checkout_test(client) -> None:
             r = client.post(
                 "/api/session/checkout",
                 headers=HEADERS,
-                json={"agent": "agent_a", "summary_text": "雑談だけだった"},
+                json={"agent": "alice", "summary_text": "雑談だけだった"},
             )
 
     _expect(r.status_code == 200, f"empty-result checkout returns 200 ({r.status_code})")
@@ -314,7 +314,7 @@ def run_catalog_tests(client) -> None:
     print("\n[bonus] semantic-memory catalogue")
 
     r = client.get(
-        "/memory/semantic?agent=agent_a&limit=2&offset=0", headers=HEADERS
+        "/memory/semantic?agent=alice&limit=2&offset=0", headers=HEADERS
     )
     _expect(r.status_code == 200, f"catalogue list succeeds ({r.status_code})")
     body = r.json()
@@ -500,15 +500,15 @@ def run_codex_integration_tests(client) -> None:
     )
 
     # T-CDX-04: /memory/context for an unrelated agent surfaces the global row.
-    r = client.get("/memory/context?agent=agent_g", headers=HEADERS)
+    r = client.get("/memory/context?agent=carol", headers=HEADERS)
     _expect(
         r.status_code == 200,
-        f"T-CDX-04: get_context for agent_g succeeds ({r.status_code})",
+        f"T-CDX-04: get_context for carol succeeds ({r.status_code})",
     )
     keys = [row.get("key") for row in r.json().get("semantic", [])]
     _expect(
         "smoke_codex_v1" in keys,
-        f"T-CDX-04: global row visible to unrelated agent agent_g "
+        f"T-CDX-04: global row visible to unrelated agent carol "
         f"(sample keys: {keys[:6]})",
     )
 
@@ -519,14 +519,14 @@ def run_codex_integration_tests(client) -> None:
         headers=HEADERS,
         json={
             "key": "smoke_codex_ownergate_target",
-            "value": "agent_bが既に所有しているキー。Codex由来pending承認時に403となる対象。",
+            "value": "bobが既に所有しているキー。Codex由来pending承認時に403となる対象。",
             "category": "design_decision",
-            "agent": "agent_b",
+            "agent": "bob",
         },
     )
     _expect(
         r.status_code == 200,
-        f"T-CDX-05: prep write establishes agent_b ownership ({r.status_code})",
+        f"T-CDX-05: prep write establishes bob ownership ({r.status_code})",
     )
 
     r = client.post(
@@ -535,7 +535,7 @@ def run_codex_integration_tests(client) -> None:
         json={
             "key": "smoke_codex_ownergate_target",
             "value": (
-                "operator宛てのCodex提案が既存owner=agent_bとの衝突で承認時403となるはず。"
+                "operator宛てのCodex提案が既存owner=bobとの衝突で承認時403となるはず。"
             ),
             "category": "design_decision",
             "agent": "operator",
@@ -572,7 +572,7 @@ def _verify_existing_data_migrated() -> None:
     con.execute(
         "INSERT INTO semantic_memories (key, value, category, agent, owner) "
         "VALUES (?, ?, ?, ?, NULL)",
-        ("smoke_legacy_row", "owner未設定の旧データを模した行", "task", "agent_b"),
+        ("smoke_legacy_row", "owner未設定の旧データを模した行", "task", "bob"),
     )
     con.commit()
     con.execute(
@@ -584,7 +584,7 @@ def _verify_existing_data_migrated() -> None:
         "SELECT owner FROM semantic_memories WHERE key = ?", ("smoke_legacy_row",)
     ).fetchone()
     con.close()
-    _expect(row and row[0] == "agent_b", "legacy NULL-owner row backfilled to agent")
+    _expect(row and row[0] == "bob", "legacy NULL-owner row backfilled to agent")
 
 
 def main() -> None:

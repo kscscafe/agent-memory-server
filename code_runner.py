@@ -11,12 +11,12 @@ import shutil
 from pathlib import Path
 from typing import Optional
 
-from claude_executor import format_with_operator_persona
+from claude_executor import format_with_default_persona
 
 CODE_KEYWORDS = [
     # Japanese
     "コード", "実装", "修正して", "リファクタ", "リファクター",
-    "デプロイ", "ビルド", "テスト追加", "テスト書", "プルagent_c", "プルagent_cエスト",
+    "デプロイ", "ビルド", "テスト追加", "テスト書",
     "コミット", "マージ", "リリース", "バグ修正",
     "リポジトリ", "ディレクトリ", "ファイル", "内容を知りたい",
     "調べて", "確認して", "一覧", "構成",
@@ -111,4 +111,4 @@ async def run_claude_code(content: str, context: Optional[str] = None) -> str:
     else:
         raw = stdout or "(empty output)"
 
-    return await format_with_operator_persona(raw)
+    return await format_with_default_persona(raw)

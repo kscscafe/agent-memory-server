@@ -612,7 +612,7 @@ def search_memory(
     Args:
       query: natural-language query
       mode: 'hybrid' (default, RRF of vec + FTS5), 'vec', or 'fts'
-      agent: optional agent name filter (operator / agent_a / agent_b / agent_c / agent_d / agent_e / agent_h / agent_f)
+      agent: optional agent name filter (see VALID_AGENTS env)
     """
     params: dict[str, Any] = {"q": query, "mode": mode, "limit": 20}
     if agent:
@@ -687,7 +687,7 @@ def get_context(agent: str) -> dict:
     """Get the full memory context (semantic + procedural + episodic) for an agent.
 
     Args:
-      agent: agent name (operator / agent_a / agent_b / agent_c / agent_d / agent_e / agent_h / agent_f)
+      agent: agent name (see VALID_AGENTS env)
     """
     return _ams_get("/memory/context", {"agent": agent})
 
@@ -700,7 +700,7 @@ def save_candidate(
     agent: str,
     source: str = "mcp",
 ) -> dict:
-    """Queue a save candidate for operator's approval (does NOT write to semantic_memories directly).
+    """Queue a save candidate for the operator's approval (does NOT write to semantic_memories directly).
 
     Args:
       key: snake_case identifier
@@ -739,7 +739,7 @@ def save_memory(
       key: snake_case identifier (PRIMARY KEY in semantic_memories)
       value: concise description (Japanese OK)
       category: 'surface' | 'design_decision' | 'infra' | 'agent_policy'
-      agent: agent name (operator / agent_a / agent_b / agent_c / agent_d / agent_e / agent_h / agent_f)
+      agent: agent name (see VALID_AGENTS env)
     """
     result = _ams_post(
         "/memory/semantic",
@@ -850,7 +850,7 @@ def save_codex_candidate(
                     (also 'app_status' | 'task' | 'study' if applicable)
       target_agent: agent expected to become responsible after approval.
                     Recorded as pending_decisions.agent and enforced by the
-                    owner-gate during promotion. Recommended: 'operator'.
+                    owner-gate during promotion. Use the operator agent name.
       evidence:     free-form justification / URL / citation. Stored as
                     source_reference (empty → NULL, max 2000 chars).
     """
@@ -888,7 +888,9 @@ def list_pending_candidates(
     return _ams_get("/memory/pending", params)
 
 
-STUDY_MAP_SUBJECTS = ("確率統計", "AIプログラミング", "Python", "UNIX")
+STUDY_MAP_SUBJECTS: tuple[str, ...] = tuple(
+    s.strip() for s in os.environ.get("STUDY_MAP_SUBJECTS", "").split(",") if s.strip()
+)
 
 STUDY_MAP_CORS = {
     "Access-Control-Allow-Origin": "*",
@@ -923,7 +925,15 @@ def _persist_study_map(subject, session, data) -> tuple[bool, dict, int]:
     try:
         _ams_post(
             "/memory/semantic",
-            {"key": key, "value": value, "category": "study", "agent": "agent_d"},
+            {
+                "key": key,
+                "value": value,
+                "category": "study",
+                "agent": (
+                    os.environ.get("STUDY_COACH_AGENT")
+                    or os.environ.get("DEFAULT_AGENT", "default")
+                ),
+            },
         )
     except Exception as e:  # noqa: BLE001
         return False, {"ok": False, "error": f"ams upsert failed: {e}"}, 502
@@ -985,13 +995,16 @@ async def study_map_generate_post(request: Request) -> JSONResponse:
             status_code=500, headers=STUDY_MAP_CORS,
         )
 
-    system_prompt = (
-        "あなたはREDACTEDの学習コーチです。\n"
-        "ユーザーが貼り付けたNotebookLMのまとめから、以下のJSON形式のみを返してください（余分なテキスト不要）:\n"
-        '{"title":"...","summary":"...","keywords":[...],"problems":[{"question":"...","answer":"...","explanation":"..."}]}\n'
-        f"科目：{subject} 第{session}回\n"
-        "問題例は2〜3問、試験に出そうな具体的な問題にしてください。"
-    )
+    system_prompt_template = os.environ.get("STUDY_MAP_SYSTEM_PROMPT", "").strip()
+    if not system_prompt_template:
+        return JSONResponse(
+            {"ok": False, "error": "STUDY_MAP_SYSTEM_PROMPT not configured"},
+            status_code=503, headers=STUDY_MAP_CORS,
+        )
+    try:
+        system_prompt = system_prompt_template.format(subject=subject, session=session)
+    except (KeyError, IndexError):
+        system_prompt = system_prompt_template
 
     try:
         import anthropic

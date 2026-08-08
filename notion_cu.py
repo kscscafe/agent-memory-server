@@ -1,7 +1,8 @@
-"""Notion API client for the REDACTED 授業管理DB.
+"""Notion API client for the optional lesson-tracker database.
 
-Reads `NOTION_TOKEN` and `NOTION_CU_DATABASE_ID` from env. Module is named
-`notion_cu` (not `notion_client`) to avoid shadowing the upstream package.
+Reads `NOTION_TOKEN` and `NOTION_LESSON_DATABASE_ID` from env. Module is named
+`notion_cu` (not `notion_client`) to avoid shadowing the upstream package —
+the historical `cu` suffix is retained for import compatibility only.
 """
 import os
 from datetime import date, datetime, timedelta
@@ -24,7 +25,12 @@ def _client() -> Optional[Client]:
 
 
 def _db_id() -> str:
-    return os.environ.get("NOTION_CU_DATABASE_ID", "").strip()
+    # Prefer the new NOTION_LESSON_DATABASE_ID; keep NOTION_CU_DATABASE_ID as
+    # a legacy alias so an existing operator's .env keeps working.
+    return (
+        os.environ.get("NOTION_LESSON_DATABASE_ID", "")
+        or os.environ.get("NOTION_CU_DATABASE_ID", "")
+    ).strip()
 
 
 _DATA_SOURCE_ID_CACHE: dict[str, str] = {}
@@ -249,13 +255,15 @@ def get_current_week_summary() -> Optional[dict]:
 
 
 def format_current_week_summary(summary: Optional[dict]) -> str:
-    """`📚 REDACTED：第X週 残りY科目（期限：MM/DD）` 形式。0件/None なら空文字。"""
+    """`📚 <label>：第X週 残りY科目（期限：MM/DD）` 形式。0件/None なら空文字。
+    Label prefix is configured via LESSON_TRACKER_LABEL env (empty → 'Lessons')."""
     if not summary or not summary.get("pending_count"):
         return ""
     week = summary["week"]
     count = summary["pending_count"]
     due = summary.get("due")
-    base = f"📚 REDACTED：第{week}週 残り{count}科目"
+    label = os.environ.get("LESSON_TRACKER_LABEL", "").strip() or "Lessons"
+    base = f"📚 {label}：第{week}週 残り{count}科目"
     if not due:
         return base
     try:

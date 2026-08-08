@@ -23,8 +23,11 @@ BATCH_SIZE = 3
 PRIORITY_ORDER = "CASE priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 WHEN 'low' THEN 2 ELSE 3 END"
 
 
-async def _sync_cu_to_ams(week: int, lessons: list[dict]) -> None:
-    """Notion CU進捗を AMS semantic_memories に書き込む。"""
+async def _sync_lessons_to_ams(week: int, lessons: list[dict]) -> None:
+    """Snapshot lesson-tracker progress into semantic_memories under a
+    weekly key. Agent is taken from STUDY_COACH_AGENT (falling back to
+    DEFAULT_AGENT), so a fresh install won't accidentally mint rows under a
+    placeholder identity."""
     import json
     summary = {
         "week": week,
@@ -39,19 +42,23 @@ async def _sync_cu_to_ams(week: int, lessons: list[dict]) -> None:
         ],
     }
     value = json.dumps(summary, ensure_ascii=False)
-    key = f"cu_week{week:02d}_notion_sync"
+    key = f"lesson_week{week:02d}_notion_sync"
+    agent = (
+        os.environ.get("STUDY_COACH_AGENT")
+        or os.environ.get("DEFAULT_AGENT", "default")
+    )
     now = datetime.utcnow().isoformat()
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             """
             INSERT INTO semantic_memories (key, value, category, agent, created_at, updated_at)
-            VALUES (?, ?, 'study', 'agent_d', ?, ?)
+            VALUES (?, ?, 'study', ?, ?, ?)
             ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at
             """,
-            (key, value, now, now),
+            (key, value, agent, now, now),
         )
         await db.commit()
-    print(f"[morning_report] AMS cu_sync done: {key}", flush=True)
+    print(f"[morning_report] AMS lesson_sync done: {key}", flush=True)
 
 
 async def scan_and_execute() -> int:
@@ -115,7 +122,7 @@ async def scan_and_execute() -> int:
 
 
 LIVE_STATUSES = {"公開中", "販売中"}
-PLATFORM_ORDER = ["iOS", "iPadOS", "macOS", "watchOS", "Android", "KDP", "web"]
+PLATFORM_ORDER = ["iOS", "iPadOS", "macOS", "watchOS", "Android", "web"]
 STATUS_BADGES = {
     "審査中": "⏳",
     "開発中": "🔧",
@@ -255,7 +262,7 @@ async def send_morning_report() -> str:
         if cu_summary and cu_summary.get("week"):
             week = cu_summary["week"]
             lessons = await asyncio.to_thread(notion_cu.get_lessons_by_week, week)
-            await _sync_cu_to_ams(week, lessons)
+            await _sync_lessons_to_ams(week, lessons)
     except Exception as e:  # noqa: BLE001
         print(f"[morning_report] notion_cu fetch failed: {e}", flush=True)
 

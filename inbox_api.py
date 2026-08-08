@@ -1,10 +1,13 @@
 """Inbox: low-friction capture endpoint.
 
-REDACTEDの「外部脳」入口。LINE webhook / Slack / iPhoneショートカット / MCP どこから
-入っても、一言を未分類のまま `inbox` に放り込む。後段（operatorのバッチ）で分類・
-昇格する。書式・カテゴリ・最小文字数などの要求は一切なし。content 非空のみ検査。
+The owner's "external brain" entry point. Whatever transport delivers the
+snippet (LINE webhook / Slack / iPhone shortcut / MCP), it lands raw in the
+`inbox` table without classification. A downstream batch (the operator agent)
+later triages and promotes. No format, category, or minimum-length checks —
+only content non-empty.
 
-semantic_memories の owner-gate / category 検査は適用しない。
+semantic_memories owner-gate / category validation intentionally does NOT
+apply here.
 """
 from pathlib import Path
 from typing import Optional

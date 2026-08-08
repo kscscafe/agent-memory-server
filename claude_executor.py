@@ -1,10 +1,19 @@
 """Run a single instruction through the Anthropic API, routed by agent persona.
 
 Agent personas are loaded from prompt files under ``AGENT_PROMPT_DIR`` (defaults
-to ``./prompts/``). For each canonical agent name we try, in order:
-    <AGENT_PROMPT_DIR>/<name>.md         # local / private override
-    <AGENT_PROMPT_DIR>/<name>.example.md # tracked template shipped with the repo
+to ``./prompts/``). The default operator's prompt basename is set via
+``DEFAULT_AGENT`` (default ``default``, shipping template
+``prompts/default.example.md``). Additional personas can be registered by
+setting the ``AGENT_PROMPT_MAP`` env var to a JSON dict
+``{"<display-name>": "<basename>", ...}``.
+
+For each basename we try, in order:
+    <AGENT_PROMPT_DIR>/<basename>.md         # local / private override
+    <AGENT_PROMPT_DIR>/<basename>.example.md # tracked template shipped with the repo
 Fallback if neither exists: a minimal stub ``You are agent <name>.``
+
+The optional study-coach and lesson-tracker flows are inert unless the
+corresponding env vars are configured (see .env.example).
 """
 import json
 import os
@@ -57,7 +66,8 @@ def _build_api_error_message(code: int | None) -> str:
 async def _push_api_error_async(message: str) -> None:
     """Push the API-error alert to Slack.
 
-    LINE leg removed (operator moved to Slack — LinのLINE Botは別フローで稼働中)."""
+    LINE leg was removed when the operator moved to Slack; a separate LINE
+    bot lives under its own project and is out of scope for this module."""
     try:
         await slack_client.send_slack_message(message)
     except Exception as e:  # noqa: BLE001
@@ -67,39 +77,39 @@ async def _push_api_error_async(message: str) -> None:
 def _notify_line_api_error(code: int | None = None) -> None:
     """Best-effort Slack push when an Anthropic API call fails. Never raises.
 
-    Name retained for historical reasons (was Slack+LINE; LINE leg dropped
-    after operator moved to Slack). `code` is the HTTP status code from the
-    Anthropic exception (e.g. `getattr(exc, "status_code", None)`)."""
+    Function name retained for historical reasons (was Slack+LINE; the LINE
+    leg was dropped when the operator moved to Slack). `code` is the HTTP
+    status code from the Anthropic exception
+    (e.g. `getattr(exc, "status_code", None)`)."""
     message = _build_api_error_message(code)
     try:
         asyncio.run(_push_api_error_async(message))
     except Exception as e:  # noqa: BLE001
         print(f"[claude_executor] API-error notification failed: {e}")
 
-OPERATOR_PROMPT = _load_agent_prompt("operator")
+
+DEFAULT_AGENT = os.environ.get("DEFAULT_AGENT", "default").strip() or "default"
+PRIMARY_PROMPT = _load_agent_prompt(DEFAULT_AGENT)
 
 AGENT_PROMPTS: dict[str, str] = {
-    "operator": OPERATOR_PROMPT,
-    "hack": _load_agent_prompt("hack"),
-    "kirishima": _load_agent_prompt("kirishima"),
-    "rik": _load_agent_prompt("rik"),
+    DEFAULT_AGENT: PRIMARY_PROMPT,
+    "default": PRIMARY_PROMPT,
 }
-AGENT_PROMPTS["default"] = OPERATOR_PROMPT
 
-# Aliases (case variants / Japanese names) for the built-in personas above.
-# Extra prompts can be added by dropping <name>.md into AGENT_PROMPT_DIR and
-# registering the alias here.
-_ALIASES = {
-    "operator": "operator",
-    "雲": "operator",
-    "agent_a": "hack",
-    "agent_b": "kirishima",
-    "agent_c": "rik",
-    "agent_c": "rik",
-}
-for alias, canonical in _ALIASES.items():
-    if canonical in AGENT_PROMPTS:
-        AGENT_PROMPTS[alias] = AGENT_PROMPTS[canonical]
+# Additional personas: {"<display>": "<basename>"}. Each display name and each
+# basename are registered as lookup keys, so callers can refer to a persona
+# either way.
+try:
+    _AGENT_PROMPT_MAP = json.loads(os.environ.get("AGENT_PROMPT_MAP", "{}") or "{}")
+except json.JSONDecodeError:
+    _AGENT_PROMPT_MAP = {}
+if isinstance(_AGENT_PROMPT_MAP, dict):
+    for _display, _basename in _AGENT_PROMPT_MAP.items():
+        if not (isinstance(_display, str) and isinstance(_basename, str)):
+            continue
+        prompt = _load_agent_prompt(_basename)
+        AGENT_PROMPTS[_display] = prompt
+        AGENT_PROMPTS[_basename] = prompt
 
 
 def _load_agent_status() -> str:
@@ -115,14 +125,14 @@ def _load_agent_status() -> str:
 def _build_system_prompt() -> str:
     status = _load_agent_status()
     context = f"\n\n---\n## 現在の状態\n{status}" if status else ""
-    return OPERATOR_PROMPT + context
+    return PRIMARY_PROMPT + context
 
 
 def _system_prompt(agent: str) -> str:
     if not agent:
         return _build_system_prompt()
-    resolved = AGENT_PROMPTS.get(agent.lower(), AGENT_PROMPTS.get(agent, AGENT_PROMPTS["default"]))
-    if resolved is OPERATOR_PROMPT:
+    resolved = AGENT_PROMPTS.get(agent.lower(), AGENT_PROMPTS.get(agent, AGENT_PROMPTS[DEFAULT_AGENT]))
+    if resolved is PRIMARY_PROMPT:
         return _build_system_prompt()
     return resolved
 
@@ -239,81 +249,97 @@ def _run_chat_sync(text: str, agent: str, history: list[dict]) -> str:
         return f"ERROR: {e}"
 
 
-CU_LESSON_KEYWORDS = (
-    "今週の授業", "残りの授業", "未視聴", "授業どこまで", "REDACTED", "CU",
-)
+# ── Optional lesson-tracker flow ─────────────────────────────────────
+# Inert unless LESSON_TRACKER_KEYWORDS (JSON array) is configured. Optionally
+# a LESSON_TRACKER_WEEK_PATTERN regex extracts a week number from the user's
+# message and routes through notion_cu.get_lessons_by_week().
+try:
+    LESSON_TRACKER_KEYWORDS: tuple[str, ...] = tuple(
+        json.loads(os.environ.get("LESSON_TRACKER_KEYWORDS", "[]") or "[]")
+    )
+except json.JSONDecodeError:
+    LESSON_TRACKER_KEYWORDS = ()
 
-# 第6週 / 第6回 / 6週目 / CU第6週 / CU6週 / CU第6回 / CU6回 すべて拾う
-CU_WEEK_PATTERN = re.compile(r"第\s*(\d+)\s*[週回]|(\d+)\s*週目|CU\s*(\d+)\s*[週回]")
+_lesson_pattern_src = os.environ.get("LESSON_TRACKER_WEEK_PATTERN", "").strip()
+LESSON_TRACKER_WEEK_PATTERN: re.Pattern | None = (
+    re.compile(_lesson_pattern_src) if _lesson_pattern_src else None
+)
 
 
 def _extract_week_number(text: str) -> int | None:
-    if not text:
+    if not text or LESSON_TRACKER_WEEK_PATTERN is None:
         return None
-    m = CU_WEEK_PATTERN.search(text)
+    m = LESSON_TRACKER_WEEK_PATTERN.search(text)
     if not m:
         return None
-    raw = m.group(1) or m.group(2) or m.group(3)
-    try:
-        return int(raw)
-    except (TypeError, ValueError):
-        return None
+    for grp in m.groups() or ():
+        if grp:
+            try:
+                return int(grp)
+            except (TypeError, ValueError):
+                continue
+    return None
 
 
-async def _handle_cu_week_query(week: int) -> str:
-    """Fetch all lessons for the given week number and dress in operator's voice."""
-    import notion_cu
+async def _handle_lesson_week_query(week: int) -> str:
+    """Fetch all lessons for the given week number, format via the default persona."""
     try:
+        import notion_cu
         lessons = await asyncio.to_thread(notion_cu.get_lessons_by_week, week)
         raw = notion_cu.format_lessons_by_week(lessons)
     except Exception as e:  # noqa: BLE001
-        raw = f"Notionの取得に失敗しました：{e}"
-    return await format_with_operator_persona(raw)
-
-KEI_TRIGGER = "agent_d"
-KEI_CU_KEYWORDS = ("授業", "サイバー", "CU", "今週", "残り", "未視聴")
-
-KEI_PROMPT = (
-    "あなたはagent_d。REDACTEDのREDACTEDの学習を伴走する学習コーチです。"
-    "明るくフラットな敬語で、励まし・後押しを大切にしながら、要点だけ簡潔に伝える。"
-    "授業の進捗を聞かれたら、残件を見える化したうえで一言だけ前向きに背中を押す。"
-    "余計な前置きや長い説教はしない。短く、具体的に、温かく。"
-    "返答は必ず日本語。絵文字は📚📖✏️✨🎯のような学習系を控えめに使ってよい。"
-)
+        raw = f"Notion fetch failed: {e}"
+    return await format_with_default_persona(raw)
 
 
-def _is_cu_lesson_query(text: str) -> bool:
-    if not text:
+def _is_lesson_query(text: str) -> bool:
+    if not text or not LESSON_TRACKER_KEYWORDS:
         return False
-    return any(kw in text for kw in CU_LESSON_KEYWORDS)
+    return any(kw in text for kw in LESSON_TRACKER_KEYWORDS)
 
 
-def _is_kei_cu_query(text: str) -> bool:
-    if not text or KEI_TRIGGER not in text:
-        return False
-    return any(kw in text for kw in KEI_CU_KEYWORDS)
-
-
-async def _handle_cu_lesson_query(text: str) -> str:
-    """Fetch lessons from Notion, format for LINE, then dress in operator's voice."""
-    import notion_cu
+async def _handle_lesson_query(text: str) -> str:
+    """Fetch this-week lessons via notion_cu, then format via default persona."""
     try:
+        import notion_cu
         lessons = await asyncio.to_thread(notion_cu.get_this_week_lessons)
         raw = notion_cu.format_lessons_for_line(lessons)
     except Exception as e:  # noqa: BLE001
-        raw = f"Notionの取得に失敗しました：{e}"
-    return await format_with_operator_persona(raw)
+        raw = f"Notion fetch failed: {e}"
+    return await format_with_default_persona(raw)
 
 
-async def _handle_kei_cu_query(text: str) -> str:
-    """Same as the operator handler but routes the raw text through Kei's voice."""
-    import notion_cu
+# ── Optional study-coach persona flow ────────────────────────────────
+# Inert unless STUDY_COACH_TRIGGER *and* STUDY_COACH_SYSTEM_PROMPT are set.
+STUDY_COACH_TRIGGER = os.environ.get("STUDY_COACH_TRIGGER", "").strip()
+try:
+    STUDY_COACH_KEYWORDS: tuple[str, ...] = tuple(
+        json.loads(os.environ.get("STUDY_COACH_KEYWORDS", "[]") or "[]")
+    )
+except json.JSONDecodeError:
+    STUDY_COACH_KEYWORDS = ()
+STUDY_COACH_SYSTEM_PROMPT = os.environ.get("STUDY_COACH_SYSTEM_PROMPT", "").strip()
+
+
+def _is_study_coach_query(text: str) -> bool:
+    if not text or not (STUDY_COACH_TRIGGER and STUDY_COACH_SYSTEM_PROMPT):
+        return False
+    if STUDY_COACH_TRIGGER not in text:
+        return False
+    if STUDY_COACH_KEYWORDS and not any(kw in text for kw in STUDY_COACH_KEYWORDS):
+        return False
+    return True
+
+
+async def _handle_study_coach_query(text: str) -> str:
+    """Route the raw text through the study-coach persona (if configured)."""
     try:
+        import notion_cu
         lessons = await asyncio.to_thread(notion_cu.get_this_week_lessons)
         raw = notion_cu.format_lessons_for_line(lessons)
     except Exception as e:  # noqa: BLE001
-        raw = f"Notionの取得に失敗しました：{e}"
-    return await format_with_kei_persona(raw)
+        raw = f"Notion fetch failed: {e}"
+    return await format_with_study_coach_persona(raw)
 
 
 TASK_DONE_KEYWORDS = ("完了", "done", "終わった", "終了", "クローズ", "close")
@@ -400,19 +426,21 @@ async def _handle_task_update(text: str) -> str | None:
     return f"以下のタスクを{new_status}にしました。\n{lines}"
 
 
-async def chat_reply(text: str, line_message_id: str | None, agent: str = "operator") -> str:
-    """Return a chat-style operator reply without persisting as an instruction."""
+async def chat_reply(text: str, line_message_id: str | None, agent: str | None = None) -> str:
+    """Return a chat-style reply without persisting as an instruction."""
+    if not agent:
+        agent = DEFAULT_AGENT
     task_result = await _handle_task_update(text)
     if task_result is not None:
         return task_result
 
     week = _extract_week_number(text)
     if week is not None:
-        return await _handle_cu_week_query(week)
-    if _is_kei_cu_query(text):
-        return await _handle_kei_cu_query(text)
-    if _is_cu_lesson_query(text):
-        return await _handle_cu_lesson_query(text)
+        return await _handle_lesson_week_query(week)
+    if _is_study_coach_query(text):
+        return await _handle_study_coach_query(text)
+    if _is_lesson_query(text):
+        return await _handle_lesson_query(text)
     history = await _fetch_history(HISTORY_LIMIT, line_message_id)
     return await asyncio.to_thread(_run_chat_sync, text, agent, history)
 
@@ -432,7 +460,7 @@ STATUS_PARSE_USER_TEMPLATE = """既存アプリ一覧（name | platform | 現ス
 {text}
 
 このメッセージに含まれるステータス変更を、以下スキーマの JSON 配列だけで返してください。
-[{{"name": "<アプリ名>", "platform": "<iOS|Android|KDP|web|... 任意>", "status": "<許可ステータス>", "version": "<任意>"}}]
+[{{"name": "<アプリ名>", "platform": "<iOS|Android|web|... 任意>", "status": "<許可ステータス>", "version": "<任意>"}}]
 
 ルール:
 - name は必須。既存アプリ名に一致するなら表記をその通りに揃える（部分指定でも構わない、後段で照合する）。
@@ -497,10 +525,11 @@ async def parse_status_updates(text: str, apps_summary: str) -> list[dict]:
     return await asyncio.to_thread(_parse_status_updates_sync, text, apps_summary)
 
 
-def _format_with_operator_persona_sync(raw_result: str) -> str:
+def _format_with_default_persona_sync(raw_result: str) -> str:
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     if not api_key:
         return raw_result
+    owner = os.environ.get("OWNER_HANDLE", "the user")
     try:
         client = anthropic.Anthropic(api_key=api_key)
         response = client.messages.create(
@@ -508,7 +537,7 @@ def _format_with_operator_persona_sync(raw_result: str) -> str:
             max_tokens=500,
             system=_build_system_prompt(),
             messages=[
-                {"role": "user", "content": f"以下の実行結果をREDACTEDに報告してください。\n\n{raw_result}"}
+                {"role": "user", "content": f"以下の実行結果を{owner}に報告してください。\n\n{raw_result}"}
             ],
         )
         text = "".join(getattr(b, "text", "") for b in response.content).strip()
@@ -517,23 +546,28 @@ def _format_with_operator_persona_sync(raw_result: str) -> str:
         return raw_result
 
 
-async def format_with_operator_persona(raw_result: str) -> str:
-    """コード系実行結果をoperatorのペルソナで整形して返す。失敗時は生のテキストをそのまま返す。"""
-    return await asyncio.to_thread(_format_with_operator_persona_sync, raw_result)
+async def format_with_default_persona(raw_result: str) -> str:
+    """Reshape a raw execution result through the default operator persona.
+    Falls back to the raw text on any failure."""
+    return await asyncio.to_thread(_format_with_default_persona_sync, raw_result)
 
 
-def _format_with_kei_persona_sync(raw_result: str) -> str:
+def _format_with_study_coach_persona_sync(raw_result: str) -> str:
+    """Study-coach persona formatting; inert (returns raw) unless configured."""
+    if not STUDY_COACH_SYSTEM_PROMPT:
+        return raw_result
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     if not api_key:
         return raw_result
+    owner = os.environ.get("OWNER_HANDLE", "the user")
     try:
         client = anthropic.Anthropic(api_key=api_key)
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=500,
-            system=KEI_PROMPT,
+            system=STUDY_COACH_SYSTEM_PROMPT,
             messages=[
-                {"role": "user", "content": f"以下の未視聴授業リストをREDACTEDに伝えてください。\n\n{raw_result}"}
+                {"role": "user", "content": f"以下の未視聴授業リストを{owner}に伝えてください。\n\n{raw_result}"}
             ],
         )
         text = "".join(getattr(b, "text", "") for b in response.content).strip()
@@ -542,6 +576,7 @@ def _format_with_kei_persona_sync(raw_result: str) -> str:
         return raw_result
 
 
-async def format_with_kei_persona(raw_result: str) -> str:
-    """REDACTEDの未視聴授業リストをagent_dのペルソナで整形して返す。失敗時は生のテキストをそのまま返す。"""
-    return await asyncio.to_thread(_format_with_kei_persona_sync, raw_result)
+async def format_with_study_coach_persona(raw_result: str) -> str:
+    """Reshape a lesson list via the optional study-coach persona (if configured).
+    Falls back to the raw text on any failure or when unconfigured."""
+    return await asyncio.to_thread(_format_with_study_coach_persona_sync, raw_result)
