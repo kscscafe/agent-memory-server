@@ -67,7 +67,7 @@ PORT = int(os.environ.get("MCP_PORT", "8001"))
 if not (AMS_KEY and ADMIN_PASS and JWT_SECRET):
     raise SystemExit(
         "Required env vars missing: API_KEY, MCP_ADMIN_PASS, MCP_JWT_SECRET. "
-        "Check ~/Projects/agent-memory-server/.env"
+        "Check the repo's .env (copy from .env.example first if needed)."
     )
 
 DB_PATH = Path(__file__).resolve().parent / "mcp_oauth.db"

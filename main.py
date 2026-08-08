@@ -186,7 +186,7 @@ MEMORY_EXTRACT_USER_TEMPLATE = """以下のメッセージから記憶すべき�
 
 抽出できない場合は各配列を空にしてください。
 category は app_status / design_decision / agent_rule / task のいずれか。
-key は英数小文字とアンダースコアのみで一意になる短い識別子（例: app_loud_ios_status）。
+key は英数小文字とアンダースコアのみで一意になる短い識別子（例: app_<name>_<platform>_status）。
 agent は VALID_AGENTS 環境変数で列挙された名前のいずれか
 (未設定なら任意の非空文字列)。判別できない場合は DEFAULT_AGENT を指定してください。"""
 
